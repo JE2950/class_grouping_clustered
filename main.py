@@ -3,9 +3,9 @@ import pandas as pd
 import random
 import io
 
-st.set_page_config(page_title="Class Group Generator (Min 1 Friend, Custom Class Count)", layout="wide")
+st.set_page_config(page_title="Class Group Generator (Balanced)", layout="wide")
 
-st.title("🧑‍🏫 Class Group Generator (Minimum 1 Friend, Custom Class Count)")
+st.title("🧑‍🏫 Class Group Generator (Min 1 Friend, Balanced Classes)")
 
 st.markdown("""
 Upload a CSV with:
@@ -25,19 +25,22 @@ if uploaded:
     class_count = st.number_input("🔢 How many classes/groups?", min_value=2, max_value=max_class_count, value=4)
 
     students = df["Name"].tolist()
-    class_size = total_students // class_count + 1
     classes = [[] for _ in range(class_count)]
 
-    friend_map = {row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]] for _, row in df.iterrows()}
-    avoid_map = {row["Name"]: [row[f"Avoid{i}"] for i in range(1, 4) if row[f"Avoid{i}"]] for _, row in df.iterrows()}
+    friend_map = {
+        row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]]
+        for _, row in df.iterrows()
+    }
+    avoid_map = {
+        row["Name"]: [row[f"Avoid{i}"] for i in range(1, 4) if row[f"Avoid{i}"]]
+        for _, row in df.iterrows()
+    }
 
     name_to_class = {}
     placed = set()
     unplaced = []
 
     def can_place(student, group):
-        if len(group) >= class_size:
-            return False
         for peer in group:
             if peer in avoid_map[student] or student in avoid_map.get(peer, []):
                 return False
@@ -52,6 +55,7 @@ if uploaded:
         friends = friend_map.get(student, [])
         friend_in_class = False
 
+        # Try to place with a friend who's already placed (choose smallest valid class)
         for friend in friends:
             if friend in name_to_class:
                 friend_class = name_to_class[friend]
@@ -65,10 +69,11 @@ if uploaded:
         if friend_in_class:
             continue
 
+        # Place student with one friend in the smallest valid class
         for friend in friends:
             if friend not in placed:
-                # Sort class indices by ascending class size
-for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
+                for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
+                    group = classes[group_id]
                     if can_place(student, group) and can_place(friend, group):
                         group.extend([student, friend])
                         name_to_class[student] = group_id
@@ -81,8 +86,19 @@ for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
                     break
 
         if not friend_in_class:
+            # Try placing student alone into smallest valid class
+            for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
+                if can_place(student, classes[group_id]):
+                    classes[group_id].append(student)
+                    name_to_class[student] = group_id
+                    placed.add(student)
+                    friend_in_class = True
+                    break
+
+        if not friend_in_class:
             unplaced.append(student)
 
+    # Class list display
     st.header("📋 Class Lists")
     results = []
     for i, group in enumerate(classes):
@@ -99,7 +115,6 @@ for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
     export_df = pd.DataFrame(results)
     st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode("utf-8"), "assignments.csv")
 
-    # Excel export (fixed)
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
         export_df.to_excel(writer, index=False)
@@ -107,6 +122,7 @@ for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
     st.download_button("📥 Download Excel", data=excel_buffer, file_name="assignments.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    # Friendship visualisation
     st.header("🔍 Friendship Placement Summary")
     visual_data = []
     for _, row in df.iterrows():
