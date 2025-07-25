@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import random
+import io
 
-st.set_page_config(page_title="Class Group Generator", layout="wide")
+st.set_page_config(page_title="Class Group Generator (Min 1 Friend, Custom Class Count)", layout="wide")
 
-st.title("🧑‍🏫 Class Group Generator (Min 1 Friend, Custom Class Count)")
+st.title("🧑‍🏫 Class Group Generator (Minimum 1 Friend, Custom Class Count)")
 
 st.markdown("""
 Upload a CSV with:
@@ -27,7 +28,6 @@ if uploaded:
     class_size = total_students // class_count + 1
     classes = [[] for _ in range(class_count)]
 
-    # Build friend and avoid dictionaries
     friend_map = {row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]] for _, row in df.iterrows()}
     avoid_map = {row["Name"]: [row[f"Avoid{i}"] for i in range(1, 4) if row[f"Avoid{i}"]] for _, row in df.iterrows()}
 
@@ -52,7 +52,6 @@ if uploaded:
         friends = friend_map.get(student, [])
         friend_in_class = False
 
-        # Try placing with a friend who's already placed
         for friend in friends:
             if friend in name_to_class:
                 friend_class = name_to_class[friend]
@@ -66,7 +65,6 @@ if uploaded:
         if friend_in_class:
             continue
 
-        # Otherwise, place student and one friend together
         for friend in friends:
             if friend not in placed:
                 for group_id, group in enumerate(classes):
@@ -84,7 +82,6 @@ if uploaded:
         if not friend_in_class:
             unplaced.append(student)
 
-    # Display results
     st.header("📋 Class Lists")
     results = []
     for i, group in enumerate(classes):
@@ -101,13 +98,15 @@ if uploaded:
     export_df = pd.DataFrame(results)
     st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode("utf-8"), "assignments.csv")
 
-    # Excel Export
-    excel_buffer = export_df.to_excel(index=False, engine='openpyxl')
-    st.download_button("📥 Download Excel", excel_buffer, file_name="assignments.xlsx")
+    # Excel export (fixed)
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        export_df.to_excel(writer, index=False)
+    excel_buffer.seek(0)
+    st.download_button("📥 Download Excel", data=excel_buffer, file_name="assignments.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # Visualisation
     st.header("🔍 Friendship Placement Summary")
-
     visual_data = []
     for _, row in df.iterrows():
         name = row["Name"]
