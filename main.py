@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import random
 
-st.set_page_config(page_title="Class Group Generator (Friend-Pair Based)", layout="wide")
+st.set_page_config(page_title="Class Group Generator", layout="wide")
 
-st.title("🧑‍🏫 Class Group Generator (Minimum One Friend Guarantee)")
+st.title("🧑‍🏫 Class Group Generator (Min 1 Friend, Custom Class Count)")
 
 st.markdown("""
 Upload a CSV with:
@@ -19,10 +19,13 @@ if uploaded:
     df = pd.read_csv(uploaded).fillna("")
     st.success("File uploaded!")
 
+    total_students = len(df)
+    max_class_count = total_students // 10
+    class_count = st.number_input("🔢 How many classes/groups?", min_value=2, max_value=max_class_count, value=4)
+
     students = df["Name"].tolist()
-    class_size = 20
-    num_classes = len(students) // class_size
-    classes = [[] for _ in range(num_classes)]
+    class_size = total_students // class_count + 1
+    classes = [[] for _ in range(class_count)]
 
     # Build friend and avoid dictionaries
     friend_map = {row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]] for _, row in df.iterrows()}
@@ -97,6 +100,10 @@ if uploaded:
 
     export_df = pd.DataFrame(results)
     st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode("utf-8"), "assignments.csv")
+
+    # Excel Export
+    excel_buffer = export_df.to_excel(index=False, engine='openpyxl')
+    st.download_button("📥 Download Excel", excel_buffer, file_name="assignments.xlsx")
 
     # Visualisation
     st.header("🔍 Friendship Placement Summary")
