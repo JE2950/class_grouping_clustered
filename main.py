@@ -67,7 +67,8 @@ if uploaded:
 
         for friend in friends:
             if friend not in placed:
-                for group_id, group in enumerate(classes):
+                # Sort class indices by ascending class size
+for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
                     if can_place(student, group) and can_place(friend, group):
                         group.extend([student, friend])
                         name_to_class[student] = group_id
