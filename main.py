@@ -37,39 +37,34 @@ def can_place(name, group):
     if len(group) >= max_class_size:
         return False
     for peer in group:
-        if peer in avoid_map[name] or name in avoid_map.get(peer,[]):
+        if peer in avoid_map[name] or name in avoid_map.get(peer, []):
             return False
     return True
 
 # ——— Greedy placement ———
 name_to_class = {}
 for name in random.sample(students, len(students)):
-    # build candidate list: (friends_in_group, -group_size, class_index)
-    cand = []
+    candidates = []
     for idx, grp in enumerate(classes):
         if not can_place(name, grp):
             continue
         cnt = sum(1 for f in friend_map.get(name, []) if f in grp)
-        cand.append((cnt, -len(grp), idx))
-    if not cand:
+        candidates.append((cnt, -len(grp), idx))
+    if not candidates:
         continue
-    # choose highest cnt, then smallest group
-    _, _, chosen = max(cand)
+    _, _, chosen = max(candidates)
     classes[chosen].append(name)
     name_to_class[name] = chosen
 
 # ——— Identify manual‐sort list ———
 unplaced = [n for n in students if n not in name_to_class]
-# placed but with zero friends in their group
 unsatisfied = [
     n for n in students
     if n in name_to_class
        and not any(f in classes[name_to_class[n]] for f in friend_map.get(n, []))
 ]
-# also include those who had zero friends to begin with
 no_friends = [n for n in students if len(friend_map.get(n, [])) == 0]
 
-# combine and dedupe while preserving order
 manual_sort = []
 for lst in (unplaced, unsatisfied, no_friends):
     for n in lst:
@@ -81,13 +76,13 @@ export = {f"Class {i+1}": classes[i] for i in range(4)}
 export["ManualSort"] = manual_sort
 max_rows = max(len(v) for v in export.values())
 for k, v in export.items():
-    export[k] = v + [""]*(max_rows - len(v))
+    export[k] = v + [""] * (max_rows - len(v))
 export_df = pd.DataFrame(export)
 
 st.header("📋 Exported Class List")
 st.dataframe(export_df)
 
-# Download buttons
+# ——— Download buttons ———
 st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode(), "classes.csv")
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
