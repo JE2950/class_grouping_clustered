@@ -2,142 +2,136 @@ import streamlit as st
 import pandas as pd
 import random
 import io
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Class Group Generator (Balanced)", layout="wide")
-
-st.title("🧑‍🏫 Class Group Generator (Min 1 Friend, Balanced Classes)")
-
+st.set_page_config(page_title="Class Group Generator (4 Classes)", layout="wide")
+st.title("🧑‍🏫 Class Group Generator – 4 Classes")
 st.markdown("""
-Upload a CSV with:
+Upload a CSV with these columns:
 - `Name`, `Gender`, `SEN`, `Attainment`
-- `Friend1`–`Friend5`: five chosen friends
-- `Avoid1`–`Avoid3`: pupils to avoid
+- `Friend1`–`Friend5`
+- `Avoid1`–`Avoid3`
 """)
 
 uploaded = st.file_uploader("📤 Upload your CSV", type="csv")
+if not uploaded:
+    st.stop()
 
-if uploaded:
-    df = pd.read_csv(uploaded).fillna("")
-    st.success("File uploaded!")
+# Load and preprocess
+df = pd.read_csv(uploaded).fillna("")
+students = df["Name"].tolist()
+max_class_size = 18
+classes = [[] for _ in range(4)]
 
-    total_students = len(df)
-    max_class_count = total_students // 10
-    class_count = st.number_input("🔢 How many classes/groups?", min_value=2, max_value=max_class_count, value=4)
+# Build maps
+friend_map = {
+    row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]]
+    for _, row in df.iterrows()
+}
+avoid_map = {
+    row["Name"]: [row[f"Avoid{i}"] for i in range(1, 4) if row[f"Avoid{i}"]]
+    for _, row in df.iterrows()
+}
+student_info = df.set_index("Name")[["Gender", "SEN"]].to_dict("index")
 
-    students = df["Name"].tolist()
-    classes = [[] for _ in range(class_count)]
+# Helper: can this student go into this group?
+def can_place(student, group):
+    if len(group) >= max_class_size:
+        return False
+    for peer in group:
+        if peer in avoid_map[student] or student in avoid_map.get(peer, []):
+            return False
+    return True
 
-    friend_map = {
-        row["Name"]: [row[f"Friend{i}"] for i in range(1, 6) if row[f"Friend{i}"]]
-        for _, row in df.iterrows()
-    }
-    avoid_map = {
-        row["Name"]: [row[f"Avoid{i}"] for i in range(1, 4) if row[f"Avoid{i}"]]
-        for _, row in df.iterrows()
-    }
-
-    name_to_class = {}
-    placed = set()
-    unplaced = []
-
-    def can_place(student, group):
-        for peer in group:
-            if peer in avoid_map[student] or student in avoid_map.get(peer, []):
-                return False
-        return True
-
-    random.shuffle(students)
-
-    for student in students:
-        if student in placed:
+# Greedy placement with friend-tie to smallest class
+name_to_class = {}
+placed = set()
+for student in random.sample(students, len(students)):
+    best = []
+    for cls_idx, grp in enumerate(classes):
+        if not can_place(student, grp):
             continue
+        # count friends already in group
+        cnt = sum(1 for f in friend_map[student] if f in grp)
+        best.append((cnt, len(grp), cls_idx))
+    if not best:
+        # cannot go anywhere—mark unsatisfied
+        continue
+    # pick max friends, then smallest group
+    best.sort(key=lambda x: (-x[0], x[1]))
+    _, _, chosen = best[0]
+    classes[chosen].append(student)
+    name_to_class[student] = chosen
+    placed.add(student)
 
-        friends = friend_map.get(student, [])
-        friend_in_class = False
+# Identify unsatisfied: unplaced OR placed without any friend
+unsatisfied = []
+for student in students:
+    cls = name_to_class.get(student, None)
+    if cls is None:
+        unsatisfied.append(student)
+    else:
+        grp = classes[cls]
+        if not any(f in grp for f in friend_map[student]):
+            unsatisfied.append(student)
 
-        # Try to place with a friend who's already placed (choose smallest valid class)
-        for friend in friends:
-            if friend in name_to_class:
-                friend_class = name_to_class[friend]
-                if can_place(student, classes[friend_class]):
-                    classes[friend_class].append(student)
-                    name_to_class[student] = friend_class
-                    placed.add(student)
-                    friend_in_class = True
-                    break
+# 1) Friendship visualiser
+st.subheader("🔍 Friendship Placement Summary")
+vis = []
+for _, row in df.iterrows():
+    name = row["Name"]
+    cls = name_to_class.get(name, "Unplaced")
+    vis_row = {"Name": name, "Class": f"Class {cls+1}" if isinstance(cls,int) else "Unplaced"}
+    grp = classes[cls] if isinstance(cls,int) else []
+    for i in range(1,6):
+        f = row[f"Friend{i}"]
+        if not f:
+            vis_row[f"Friend{i}"] = ""
+        elif f in grp:
+            vis_row[f"Friend{i}"] = f"✅ {f}"
+        else:
+            vis_row[f"Friend{i}"] = f"❌ {f}"
+    vis.append(vis_row)
+vis_df = pd.DataFrame(vis)
+st.dataframe(vis_df)
 
-        if friend_in_class:
-            continue
+# 2) Pie charts at the bottom
+for idx, grp in enumerate(classes, start=1):
+    st.subheader(f"Class {idx} – Composition")
+    genders = [student_info[n]["Gender"] for n in grp]
+    plt.figure(figsize=(1.5,1.5))
+    plt.pie([genders.count("M"), genders.count("F")], labels=["M","F"], autopct="%1.1f%%")
+    plt.title("Gender")
+    st.pyplot(plt.gcf())
+    plt.clf()
 
-        # Place student with one friend in the smallest valid class
-        for friend in friends:
-            if friend not in placed:
-                for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
-                    group = classes[group_id]
-                    if can_place(student, group) and can_place(friend, group):
-                        group.extend([student, friend])
-                        name_to_class[student] = group_id
-                        name_to_class[friend] = group_id
-                        placed.add(student)
-                        placed.add(friend)
-                        friend_in_class = True
-                        break
-                if friend_in_class:
-                    break
+    sens = [student_info[n]["SEN"] for n in grp]
+    plt.figure(figsize=(1.5,1.5))
+    plt.pie([sens.count("Yes"), sens.count("No")], labels=["SEN","No SEN"], autopct="%1.1f%%")
+    plt.title("SEN")
+    st.pyplot(plt.gcf())
+    plt.clf()
 
-        if not friend_in_class:
-            # Try placing student alone into smallest valid class
-            for group_id in sorted(range(len(classes)), key=lambda x: len(classes[x])):
-                if can_place(student, classes[group_id]):
-                    classes[group_id].append(student)
-                    name_to_class[student] = group_id
-                    placed.add(student)
-                    friend_in_class = True
-                    break
+# 3) Export table with columns Class 1–4 and Unplaced
+st.header("📋 Exported Class List")
+export = {f"Class {i+1}": classes[i] for i in range(4)}
+export["Unsatisfied"] = unsatisfied
+max_rows = max(len(lst) for lst in export.values())
+for k in export:
+    export[k] += [""] * (max_rows - len(export[k]))
+export_df = pd.DataFrame(export)
+st.dataframe(export_df)
 
-        if not friend_in_class:
-            unplaced.append(student)
+# Download buttons
+st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode(), "classes.csv")
+buf = io.BytesIO()
+with pd.ExcelWriter(buf, engine="openpyxl") as w:
+    export_df.to_excel(w, index=False)
+buf.seek(0)
+st.download_button("📥 Download Excel", data=buf, file_name="classes.xlsx",
+                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # Class list display
-    st.header("📋 Class Lists")
-    results = []
-    for i, group in enumerate(classes):
-        st.subheader(f"Class {i+1} ({len(group)} pupils)")
-        st.write(group)
-        for name in group:
-            results.append({"Name": name, "Class": f"Class {i+1}"})
-
-    if unplaced:
-        st.warning(f"⚠️ {len(unplaced)} student(s) could not be placed with at least one friend.")
-        st.subheader("🧍‍♂️ Unplaced Students")
-        st.write(unplaced)
-
-    export_df = pd.DataFrame(results)
-    st.download_button("📥 Download CSV", export_df.to_csv(index=False).encode("utf-8"), "assignments.csv")
-
-    excel_buffer = io.BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-        export_df.to_excel(writer, index=False)
-    excel_buffer.seek(0)
-    st.download_button("📥 Download Excel", data=excel_buffer, file_name="assignments.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    # Friendship visualisation
-    st.header("🔍 Friendship Placement Summary")
-    visual_data = []
-    for _, row in df.iterrows():
-        name = row["Name"]
-        row_class = name_to_class.get(name, "Unplaced")
-        summary = {"Name": name, "Class": row_class}
-        for i in range(1, 6):
-            f = row[f"Friend{i}"]
-            if not f:
-                summary[f"Friend{i}"] = ""
-            elif name_to_class.get(f) == row_class:
-                summary[f"Friend{i}"] = f"✅ {f}"
-            else:
-                summary[f"Friend{i}"] = f"❌ {f}"
-        visual_data.append(summary)
-
-    vis_df = pd.DataFrame(visual_data)
-    st.dataframe(vis_df)
+# Finally, list Unsatisfied separately
+if unsatisfied:
+    st.warning(f"⚠️ {len(unsatisfied)} student(s) need manual sorting:")
+    st.write(unsatisfied)
